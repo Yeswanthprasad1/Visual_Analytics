@@ -89,66 +89,22 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 test_dates = df.loc[X_test.index, "datetime"]
 
-tuning_obj = st.sidebar.radio("Tuning Objective", ["R2 (maximize)", "MSE (minimize)"], index=0)
-mode = st.sidebar.selectbox("Mode", ["Manual", "Finding the Best Prediction"], index=0)
-
 if "n_trees" not in st.session_state:
-    st.session_state["n_trees"] = 50
+    st.session_state["n_trees"] = 15
 if "max_depth" not in st.session_state:
-    st.session_state["max_depth"] = 6
+    st.session_state["max_depth"] = 12
 
-# ── AUTO-TUNE ─────────────────────────────────────────────────────────────────
-if mode == "Finding the Best Prediction":
-    st.sidebar.info("Running grid search — this may take a little while...")
-    n_list = [10, 50, 100, 200]
-    depth_list = [3, 6, 10, 15]
-    results = []
-    best_model = None
-    best_pred = None
-    best_params = (st.session_state["n_trees"], st.session_state["max_depth"])
-    maximize_r2 = tuning_obj.startswith("R2")
-    best_score = -np.inf if maximize_r2 else np.inf
+n_trees = st.sidebar.slider("Number of Trees", min_value=5, max_value=30, value=st.session_state["n_trees"], step=1, key="n_trees")
+max_depth = st.sidebar.slider("Tree Maximum Depth", min_value=1, max_value=30, value=st.session_state["max_depth"], step=1, key="max_depth")
 
-    with st.spinner("Searching for best hyperparameters..."):
-        for nt in n_list:
-            for md in depth_list:
-                clf = RandomForestRegressor(n_estimators=nt, max_depth=md, random_state=42, n_jobs=-1)
-                clf.fit(X_train, y_train)
-                yhat = clf.predict(X_test)
-                mae_tmp = mean_absolute_error(y_test, yhat)
-                r2_tmp = r2_score(y_test, yhat)
-                mse_tmp = mean_squared_error(y_test, yhat)
-                results.append({"n_estimators": nt, "max_depth": md, "MAE": mae_tmp, "MSE": mse_tmp, "R2": r2_tmp})
-                if maximize_r2:
-                    if r2_tmp > best_score:
-                        best_score, best_model, best_pred, best_params = r2_tmp, clf, yhat, (nt, md)
-                else:
-                    if mse_tmp < best_score:
-                        best_score, best_model, best_pred, best_params = mse_tmp, clf, yhat, (nt, md)
-
-    res_df = pd.DataFrame(results)
-    res_df = res_df.sort_values("R2" if maximize_r2 else "MSE", ascending=not maximize_r2).reset_index(drop=True)
-    best_n, best_md = best_params
-    st.session_state["n_trees"] = int(best_n)
-    st.session_state["max_depth"] = int(best_md)
-    mse = mean_squared_error(y_test, best_pred)
-    mae = mean_absolute_error(y_test, best_pred)
-    r2 = r2_score(y_test, best_pred)
-    st.session_state["best_summary"] = {"mse": float(mse), "mae": float(mae), "r2": float(r2), "maximize_r2": bool(maximize_r2)}
-    st.session_state["best_res_df"] = res_df.head(10).to_dict()
-    model = best_model
-    pred = best_pred
-
-n_trees = st.sidebar.slider("Number of Trees", min_value=11, max_value=200, value=st.session_state["n_trees"], step=10, key="n_trees")
-max_depth = st.sidebar.slider("Tree Maximum Depth", min_value=1, max_value=20, value=st.session_state["max_depth"], step=1, key="max_depth")
-
-if mode == "Manual":
-    model = RandomForestRegressor(n_estimators=n_trees, max_depth=max_depth, random_state=42)
-    model.fit(X_train, y_train)
-    pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, pred)
-    mae = mean_absolute_error(y_test, pred)
-    r2 = r2_score(y_test, pred)
+# max_features="sqrt" increases tree diversity, making each tree's vote more distinct
+model = RandomForestRegressor(n_estimators=n_trees, max_depth=max_depth, max_features="sqrt", 
+                              n_jobs=-1, random_state=42)
+model.fit(X_train, y_train)
+pred = model.predict(X_test)
+mse = mean_squared_error(y_test, pred)
+mae = mean_absolute_error(y_test, pred)
+r2 = r2_score(y_test, pred)
 
 # ── METRICS ───────────────────────────────────────────────────────────────────
 st.subheader("Model Performance Metrics")
@@ -158,19 +114,6 @@ m2.metric("Mean Absolute Error", f"{mae:.3f}")
 m3.metric("Mean Squared Error", f"{mse:.3f}")
 st.markdown("---")
 
-if mode == "Finding the Best Prediction" and "best_summary" in st.session_state:
-    best_summary = st.session_state["best_summary"]
-    best_df = pd.DataFrame(st.session_state["best_res_df"])
-    st.info("Auto-tune applied. Below are metrics from the best found model:")
-    b1, b2, b3 = st.columns(3)
-    b1.metric("Chosen n_estimators", str(st.session_state.get("n_trees")))
-    b2.metric("Chosen max_depth", str(st.session_state.get("max_depth")))
-    if best_summary.get("maximize_r2"):
-        b3.metric("Best R²", f"{best_summary['r2']:.3f}")
-    else:
-        b3.metric("Best MSE", f"{best_summary['mse']:.3f}")
-    st.markdown("Top grid search results:")
-    st.dataframe(pd.DataFrame(best_df))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  TIME SERIES FORECAST WITH SPIKE SELECTOR
@@ -188,12 +131,13 @@ ts_df = pd.DataFrame({
 
 # ── Per-tree predictions (needed for voting control) ─────────────────────────
 @st.cache_data(show_spinner=False)
-def get_per_tree_predictions(_model, X):
-    """Return array (n_trees, n_samples) of individual tree predictions."""
+def get_per_tree_predictions(_model, X, n_trees_count):
+    """Return array (n_trees, n_samples) of individual tree predictions.
+    n_trees_count is a plain int Streamlit can hash — busts cache when tree count changes."""
     return np.array([t.predict(X) for t in _model.estimators_])
 
 X_test_reset = X_test.reset_index(drop=True)
-tree_preds = get_per_tree_predictions(model, X_test_reset)   # (n_trees, n_test)
+tree_preds = get_per_tree_predictions(model, X_test_reset, len(model.estimators_))   # (n_trees, n_test)
 
 # ── Session state for tree voting ────────────────────────────────────────────
 if "disabled_trees" not in st.session_state:
@@ -201,9 +145,10 @@ if "disabled_trees" not in st.session_state:
 
 # ── Modified prediction (after toggling trees) ────────────────────────────────
 disabled_trees = st.session_state["disabled_trees"]
-active_mask = np.ones(len(model.estimators_), dtype=bool)
+n_cached_trees = tree_preds.shape[0]   # source of truth — avoids mask/array size mismatch
+active_mask = np.ones(n_cached_trees, dtype=bool)
 for i in disabled_trees:
-    if i < len(model.estimators_):
+    if i < n_cached_trees:
         active_mask[i] = False
 
 active_tree_preds = tree_preds[active_mask]
@@ -214,7 +159,60 @@ else:
 
 n_disabled = (~active_mask).sum()
 
-# ── Build 3-line figure ───────────────────────────────────────────────────────
+# Define error spikes — dots sit ON the predicted line so the gap to actual is obvious
+error_threshold = ts_df["AbsError"].quantile(0.90)
+spike_mask = ts_df["AbsError"] >= error_threshold
+
+# Build hover text for spike dots (used later in rendering)
+spike_hover = [
+    f"<b>High-Error Spike</b><br>Time: {d}<br>Predicted: {p:.3f}<br>Actual: {a:.3f}<br>Abs Error: {e:.3f}"
+    for d, p, a, e in zip(
+        ts_df.loc[spike_mask, "datetime"],
+        ts_df.loc[spike_mask, "Predicted"],
+        ts_df.loc[spike_mask, "Actual"],
+        ts_df.loc[spike_mask, "AbsError"],
+    )
+]
+
+# ── Point selection state management ─────────────────────────────────────────
+if "selected_raw_idx" not in st.session_state:
+    st.session_state["selected_raw_idx"] = 0  # Default to beginning to enable sliding immediately
+
+# 1. Handle Chart Click Sync -> Slider
+if "ts_forecast_chart" in st.session_state and st.session_state["ts_forecast_chart"]:
+    sel_data = st.session_state["ts_forecast_chart"].get("selection", {})
+    clicked_p = sel_data.get("points", [])
+    if clicked_p:
+        raw_idx = clicked_p[0].get("point_index", 0)
+        st.session_state["selected_raw_idx"] = int(np.clip(raw_idx, 0, len(ts_df) - 1))
+
+# 2. Add the Sliding Controller 
+# We place this logic here to determine our 'sel_idx' used by both chart and panels
+col_slide, col_info = st.columns([3, 1])
+with col_slide:
+    # This slider acts as the master 'slider' to move the marker
+    new_idx = st.slider(
+        "Slide to move inspection marker across timeline",
+        min_value=0, max_value=len(ts_df)-1,
+        value=st.session_state["selected_raw_idx"],
+        key="timeline_slider_master"
+    )
+    if new_idx != st.session_state["selected_raw_idx"]:
+        st.session_state["selected_raw_idx"] = new_idx
+        st.rerun()
+
+has_selection = st.session_state["selected_raw_idx"] is not None
+if has_selection:
+    sel_idx       = st.session_state["selected_raw_idx"]
+    sel_date      = ts_df.loc[sel_idx, "datetime"]
+    sel_actual    = ts_df.loc[sel_idx, "Actual"]
+    sel_pred_orig = ts_df.loc[sel_idx, "Predicted"]
+    sel_pred_mod  = modified_pred[sel_idx]
+    sel_error     = ts_df.loc[sel_idx, "AbsError"]
+else:
+    sel_idx = None
+
+# ── Build Forecast Figure ────────────────────────────────────────────────────
 fig_ts = go.Figure()
 
 # Actual
@@ -228,100 +226,90 @@ fig_ts.add_trace(go.Scatter(
 fig_ts.add_trace(go.Scatter(
     x=ts_df["datetime"], y=ts_df["Predicted"],
     mode="lines", name="Original Prediction",
-    line=dict(color="#fb923c", width=2, dash="dot"),
-    opacity=0.75
+    line=dict(color="#ea580c", width=2.5)
 ))
 
 # Modified prediction (after toggling trees)
 if n_disabled > 0:
     fig_ts.add_trace(go.Scatter(
         x=ts_df["datetime"], y=modified_pred,
-        mode="lines", name=f"Modified Prediction ({n_disabled} trees disabled)",
-        line=dict(color="#a78bfa", width=2.5)
+        mode="lines", name=f"Modified Prediction ({n_disabled} disabled)",
+        line=dict(color="#8b5cf6", width=3)
     ))
 
-# Error spikes — dots sit ON the predicted line so the gap to actual is obvious
-error_threshold = ts_df["AbsError"].quantile(0.90)
-spike_mask = ts_df["AbsError"] >= error_threshold
-
-# Build hover text for spike dots
-spike_hover = [
-    f"<b>High-Error Spike</b><br>Time: {d}<br>Predicted: {p:.3f}<br>Actual: {a:.3f}<br>Abs Error: {e:.3f}"
-    for d, p, a, e in zip(
-        ts_df.loc[spike_mask, "datetime"],
-        ts_df.loc[spike_mask, "Predicted"],
-        ts_df.loc[spike_mask, "Actual"],
-        ts_df.loc[spike_mask, "AbsError"],
-    )
-]
+# Show high-error spike dots always at full opacity
 fig_ts.add_trace(go.Scatter(
     x=ts_df.loc[spike_mask, "datetime"],
-    y=ts_df.loc[spike_mask, "Predicted"],   # <── sits on the predicted line
+    y=ts_df.loc[spike_mask, "Predicted"],
     mode="markers", name="High-Error Spike",
-    marker=dict(color="#f43f5e", size=9, symbol="circle",
-                opacity=1.0, line=dict(color="#fff", width=1)),
+    marker=dict(color="#f43f5e", size=10, symbol="circle",
+                line=dict(color="#fff", width=1)),
     text=spike_hover, hoverinfo="text"
 ))
 
-# ── determine a sensible default x-window (latest ~60 points or full range) ──
-window_pts = min(60, len(ts_df))
-range_start = str(ts_df["datetime"].iloc[-window_pts])[:10]
-range_end   = str(ts_df["datetime"].iloc[-1])[:10]
+if has_selection:
+    # Minimalist marker exactly at the clicked point
+    fig_ts.add_trace(go.Scatter(
+        x=[sel_date], y=[sel_pred_orig],
+        mode="markers", name="Selection",
+        marker=dict(color="#fff", size=14, symbol="circle", 
+                    line=dict(color="#000", width=2)),
+        hoverinfo="skip"
+    ))
 
 fig_ts.update_layout(
-    title="Actual vs Predicted Pollutant Levels — drag the rangeslider to pan/zoom",
+    title="Interactive Actual vs Predicted Pollutant Levels",
     xaxis_title="Time", yaxis_title=target,
     height=520, template="plotly_dark",
-    margin=dict(l=40, r=40, t=50, b=80),
+    margin=dict(l=40, r=40, t=50, b=40),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-    # ── rangeslider (flow window) ──────────────────────────────────────────────
-    xaxis=dict(
-        rangeslider=dict(visible=True, thickness=0.06, bgcolor="#1e293b"),
-        rangeselector=dict(
-            buttons=[
-                dict(count=7,  label="1W",  step="day",  stepmode="backward"),
-                dict(count=14, label="2W",  step="day",  stepmode="backward"),
-                dict(count=1,  label="1M",  step="month",stepmode="backward"),
-                dict(step="all", label="All"),
-            ],
-            bgcolor="#1e293b", activecolor="#7c3aed",
-            font=dict(color="#e2e8f0", size=11),
-            x=0, y=1.08
-        ),
-        range=[range_start, range_end],   # default view = last ~60 pts
-        type="date"
-    ),
+    xaxis=dict(type="date"),
 )
-st.plotly_chart(fig_ts, use_container_width=True)
 
-# ── Spike index selector ─────────────────────────────────────────────────────
-spike_indices = ts_df.index[spike_mask].tolist()
-if spike_indices:
-    col_sp1, col_sp2 = st.columns([3, 1])
-    with col_sp1:
-        sel_spike_pos = st.select_slider(
-            "🎯 Select a Spike Point to Inspect",
-            options=list(range(len(spike_indices))),
-            value=0,
-            format_func=lambda i: str(ts_df.loc[spike_indices[i], "datetime"])[:16]
-        )
-    with col_sp2:
-        st.metric("Abs Error at Spike", f"{ts_df.loc[spike_indices[sel_spike_pos], 'AbsError']:.3f}")
+# Render focusing chart
+chart_state = st.plotly_chart(
+    fig_ts,
+    use_container_width=True,
+    on_select="rerun",
+    selection_mode="points",
+    key="ts_forecast_chart",
+)
 
-    sel_idx = spike_indices[sel_spike_pos]
-    sel_date = ts_df.loc[sel_idx, "datetime"]
-    sel_actual = ts_df.loc[sel_idx, "Actual"]
-    sel_pred_orig = ts_df.loc[sel_idx, "Predicted"]
-    sel_pred_mod  = modified_pred[sel_idx]
+if not has_selection:
+    st.markdown("""
+    <div style='text-align:center; padding:20px; color:#94a3b8; border:1px dashed #334155; border-radius:10px; margin-top:10px'>
+      🔍 <b>Ready to Inspect:</b> Click any <span style='color:#f43f5e;font-weight:bold'>🔴 High-Error Spike</span> on the chart above to drill down into tree decisions.
+    </div>
+    """, unsafe_allow_html=True)
 
+if has_selection:
+    # ── Selected-point banner ────────────────────────────────────────────────
     st.markdown(f"""
-    <div class="spike-banner">
-      <h3>⚡ Spike at {sel_date}</h3>
-      <b>Actual:</b> {sel_actual:.3f} &nbsp;|&nbsp;
-      <b>Original Prediction:</b> {sel_pred_orig:.3f} &nbsp;|&nbsp;
-      <b>Modified Prediction:</b> {sel_pred_mod:.3f} &nbsp;|&nbsp;
-      <b>Error:</b> {sel_actual - sel_pred_orig:.3f}
+    <div style="background:linear-gradient(135deg,#1e1e2e,#23233a);border-left:4px solid #facc15;
+                border-radius:8px;padding:12px 18px;margin-bottom:12px;color:#fff;">
+      <b>Time:</b> {sel_date} &nbsp;|
+      <b>Actual:</b> <span style="color:#38bdf8">{sel_actual:.3f}</span> &nbsp;|
+      <b>Predicted:</b> <span style="color:#ea580c">{sel_pred_orig:.3f}</span> &nbsp;|
+      <b>Abs Error:</b> <span style="color:#facc15">{sel_error:.3f}</span>
+      &nbsp;&nbsp;<span style="color:#64748b;font-size:0.82rem">(select any point on the graph to inspect)</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Summary of modified prediction impact ─────────────────────────────────
+    n_total = len(model.estimators_)
+    n_active_now = n_total - len(st.session_state["disabled_trees"])
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg, #1e293b, #23233a); border-radius:8px; padding:12px 18px; margin-bottom:12px; border-left:4px solid #a78bfa; color:#fff; font-size:0.92rem'>
+      <b style='color:#a78bfa'>✨ Live Prediction Impact:</b> &nbsp;&nbsp;
+      <b>Modified:</b> <span style='color:#e2e8f0;font-size:1rem'>{sel_pred_mod:.4f}</span>
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      <b>Original:</b> <span style='color:#e2e8f0'>{sel_pred_orig:.4f}</span>
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      <b>Actual:</b> <span style='color:#38bdf8'>{sel_actual:.4f}</span>
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      <b>Active Trees:</b> <span style='color:#e2e8f0'>{n_active_now}/{n_total}</span>
+      &nbsp;&nbsp;<span style='color:#64748b;font-size:0.8rem'>(toggle trees below to update)</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -443,74 +431,31 @@ if spike_indices:
             font=dict(color="#e2e8f0"),
         )
 
-        # Capture click event via plotly_events or st.session_state trick
-        # We use streamlit-plotly-events if available, else show instructions
-        heatmap_click = None
-        try:
-            from streamlit_plotly_events import plotly_events
-            click_data = plotly_events(fig_heat_px, click_event=True,
-                                       override_height=max(280, len(selected_features)*55+100),
-                                       key="heatmap_click")
-            if click_data:
-                heatmap_click = click_data[0]
-        except ImportError:
-            st.plotly_chart(fig_heat_px, use_container_width=True)
-            st.caption("💡 Install `streamlit-plotly-events` for click-to-inspect functionality.")
-
-        # ── Tree detail panel (shown when a cell is clicked or from selection) ─
-        st.markdown("**🔎 Tree Detail Inspector**")
-        col_ti_sel, col_ti_btn = st.columns([2, 1])
-        with col_ti_sel:
-            inspect_tree_idx = st.selectbox(
-                "Inspect tree",
-                options=list(range(max_trees_heatmap)),
-                format_func=lambda i: f"T{i}{'  ⛔' if i in disabled_trees else ''}",
-                index=heatmap_click["pointNumber"] if heatmap_click else 0,
-                key="heatmap_inspect_tree"
-            )
-        with col_ti_btn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if inspect_tree_idx in disabled_trees:
-                if st.button("✅ Re-enable this tree", key="re_enable_heatmap_tree"):
-                    st.session_state["disabled_trees"].discard(inspect_tree_idx)
-                    st.rerun()
-            else:
-                if st.button("⛔ Disable this tree", key="disable_heatmap_tree"):
-                    st.session_state["disabled_trees"].add(inspect_tree_idx)
-                    st.rerun()
-
-        # Detailed stats for the chosen tree
-        chosen_vote  = tree_preds_at_spike[inspect_tree_idx]
-        chosen_err   = chosen_vote - sel_actual
-        worst_abs    = float(np.abs(tree_preds_at_spike - sel_actual).max())
-        err_rank     = int(np.sum(np.abs(tree_preds_at_spike - sel_actual) >=
-                                  np.abs(chosen_err)))
-        corr_for_tree = corr_matrix[:, inspect_tree_idx]   # per-feature
-        top_feat_idx  = int(np.argmax(np.abs(corr_for_tree)))
-        top_feat_name = selected_features[top_feat_idx]
-        top_feat_corr = corr_for_tree[top_feat_idx]
-
-        status_badge = "🔴 DISABLED" if inspect_tree_idx in disabled_trees else "🟢 Active"
-        recommendation = (
-            "⚠️ Consider disabling — large error & strong feature coupling."
-            if abs(chosen_err) > 0.3 * worst_abs and abs(top_feat_corr) > 0.4
-            else "✔️ Reasonable vote — low impact if disabled."
+        # Render heatmap — on_select fires a rerun
+        heat_state = st.plotly_chart(
+            fig_heat_px,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="points",
+            key="tree_corr_heatmap"
         )
 
-        st.markdown(f"""
-        <div style='background:#1e293b;border-radius:8px;padding:12px 16px;margin-top:6px;font-size:0.88rem'>
-          <b style='color:#a78bfa'>Tree T{inspect_tree_idx}</b> &nbsp; {status_badge}<br><br>
-          🎯 <b>Vote at spike:</b> <span style='color:#fb923c'>{chosen_vote:.4f}</span>
-          &nbsp;|&nbsp;
-          <b>Actual:</b> <span style='color:#38bdf8'>{sel_actual:.4f}</span>
-          &nbsp;|&nbsp;
-          <b>Error:</b> <span style='color:{"#f43f5e" if chosen_err > 0 else "#34d399"}'>{chosen_err:+.4f}</span><br>
-          📊 <b>Error rank among trees:</b> #{err_rank} worst out of {max_trees_heatmap}<br>
-          🔗 <b>Strongest feature coupling:</b> <code>{top_feat_name}</code>
-          (r = {top_feat_corr:+.3f})<br>
-          💡 {recommendation}
-        </div>
-        """, unsafe_allow_html=True)
+        # Handle heatmap click to toggle tree
+        if heat_state:
+            heat_clicks = (heat_state.selection or {}).get("points", [])
+            if heat_clicks:
+                # x is the tree label (e.g. "T0" or "🔴")
+                # We can't rely on the label, so we use point_index which is the column index
+                ti_clicked = int(heat_clicks[0].get("point_index", 0))
+                if ti_clicked < max_trees_heatmap:
+                    # Toggle session state set
+                    if ti_clicked in st.session_state["disabled_trees"]:
+                        st.session_state["disabled_trees"].discard(ti_clicked)
+                        st.session_state[f"tree_toggle_{ti_clicked}"] = True
+                    else:
+                        st.session_state["disabled_trees"].add(ti_clicked)
+                        st.session_state[f"tree_toggle_{ti_clicked}"] = False
+                    st.rerun()
 
     # ── Tree decisions at spike point ────────────────────────────────────────
     with col_trees:
@@ -548,7 +493,28 @@ if spike_indices:
             showlegend=False,
             margin=dict(l=30, r=30, t=50, b=40)
         )
-        st.plotly_chart(fig_votes, use_container_width=True)
+        # Render the bar chart — on_select fires a rerun
+        vote_chart_state = st.plotly_chart(
+            fig_votes,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="points",
+            key="tree_votes_at_spike_chart"
+        )
+
+        # Handle click to toggle tree status
+        if n_show > 0:
+            vote_clicks = (vote_chart_state.selection or {}).get("points", []) if vote_chart_state else []
+            if vote_clicks:
+                # point_index refers to the tree index (T0, T1...)
+                ti_clicked = int(vote_clicks[0].get("point_index", 0))
+                if ti_clicked in st.session_state["disabled_trees"]:
+                    st.session_state["disabled_trees"].discard(ti_clicked)
+                    st.session_state[f"tree_toggle_{ti_clicked}"] = True
+                else:
+                    st.session_state["disabled_trees"].add(ti_clicked)
+                    st.session_state[f"tree_toggle_{ti_clicked}"] = False
+                st.rerun()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  TREE VOTING CONTROL PANEL
@@ -559,8 +525,6 @@ if spike_indices:
         "Disable individual trees to see how the modified prediction line changes. "
         "The purple line in the chart above updates to reflect your choices."
     )
-
-    n_total = len(model.estimators_)
     n_cols_ctrl = 10
     tree_chunks = [list(range(i, min(i + n_cols_ctrl, n_total))) for i in range(0, n_total, n_cols_ctrl)]
 
@@ -569,58 +533,46 @@ if spike_indices:
     with qa1:
         if st.button("✅ Enable All Trees"):
             st.session_state["disabled_trees"] = set()
+            for i in range(n_total):
+                st.session_state[f"tree_toggle_{i}"] = True
             st.rerun()
     with qa2:
         # Disable the top-N trees that are furthest from actual at spike
         if st.button("⛔ Disable Top-5 Worst Trees at Spike"):
-            worst5 = np.argsort(np.abs(tree_preds_at_spike - sel_actual))[-5:]
+            worst5 = list(np.argsort(np.abs(tree_preds_at_spike - sel_actual))[-5:])
             st.session_state["disabled_trees"] = set(int(i) for i in worst5)
+            for i in range(n_total):
+                st.session_state[f"tree_toggle_{i}"] = (i not in st.session_state["disabled_trees"])
             st.rerun()
     with qa3:
         if st.button("🔁 Reset to Baseline"):
             st.session_state["disabled_trees"] = set()
+            for i in range(n_total):
+                st.session_state[f"tree_toggle_{i}"] = True
             st.rerun()
-
-    st.markdown("")
-    disabled_trees_local = st.session_state["disabled_trees"].copy()
 
     for chunk in tree_chunks:
         cols = st.columns(len(chunk))
         for j, ti in enumerate(chunk):
-            is_active = ti not in disabled_trees_local
+            # source of truth is the session state
+            is_active_init = ti not in st.session_state["disabled_trees"]
             with cols[j]:
                 label = f"T{ti}"
                 vote = tree_preds_at_spike[ti]
                 delta = vote - sel_actual
                 delta_str = f"{delta:+.2f}"
-                checked = st.checkbox(label, value=is_active, key=f"tree_toggle_{ti}",
-                                      help=f"Tree {ti} vote: {vote:.3f} (Δ {delta_str} vs actual)")
-                if not checked:
-                    disabled_trees_local.add(ti)
-                elif ti in disabled_trees_local:
-                    disabled_trees_local.discard(ti)
+                
+                # Checkbox change triggers rerun automatically
+                is_active = st.checkbox(label, value=is_active_init, key=f"tree_toggle_{ti}",
+                                       help=f"Tree {ti} vote: {vote:.3f} (Δ {delta_str} vs actual)")
+                
+                if is_active != is_active_init:
+                    if is_active:
+                        st.session_state["disabled_trees"].discard(ti)
+                    else:
+                        st.session_state["disabled_trees"].add(ti)
+                    st.rerun()
 
-    if disabled_trees_local != st.session_state["disabled_trees"]:
-        st.session_state["disabled_trees"] = disabled_trees_local
-        st.rerun()
-
-    # ── Summary of modified prediction impact ─────────────────────────────────
-    n_active_now = n_total - len(disabled_trees_local)
-    st.markdown(f"""
-    <div style='background:#1e293b;border-radius:8px;padding:12px 16px;margin-top:10px'>
-      <b style='color:#a78bfa'>Modified Prediction at spike:</b>
-      <span style='color:#e2e8f0;font-size:1.1rem'>&nbsp;{sel_pred_mod:.4f}</span>
-      &nbsp;&nbsp;|&nbsp;&nbsp;
-      <b style='color:#fb923c'>Original Prediction:</b>
-      <span style='color:#e2e8f0'>&nbsp;{sel_pred_orig:.4f}</span>
-      &nbsp;&nbsp;|&nbsp;&nbsp;
-      <b style='color:#38bdf8'>Actual:</b>
-      <span style='color:#e2e8f0'>&nbsp;{sel_actual:.4f}</span>
-      &nbsp;&nbsp;|&nbsp;&nbsp;
-      <b style='color:#94a3b8'>Active trees:</b>
-      <span style='color:#e2e8f0'>&nbsp;{n_active_now}/{n_total}</span>
-    </div>
-    """, unsafe_allow_html=True)
 
 else:
     st.info("No spike points detected — all errors are below the 90th-percentile threshold. Try a different target or feature set.")
