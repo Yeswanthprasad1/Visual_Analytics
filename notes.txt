@@ -30,3 +30,29 @@ ggplot(df, aes(x = reorder(group, value), y = value)) +
   scale_y_continuous(limits = c(min(df$value) - 0.2,
                                 max(df$value) + 0.2)) 
 
+
+df["color"] = np.where(df["value"] < 0, "pink", "lightblue")
+
+p = (
+    ggplot(df, aes(x=reorder("group", "value"), y="value"))
+    + geom_bar(
+        stat="identity",
+        show_legend=False,
+        fill=df["color"],   # use precomputed colors
+        color="white"
+    )
+    + geom_text(
+        aes(
+            label="round(value, 1)",
+            vjust="np.where(value < 0, 1.5, -1)"
+        ),
+        size=8  # plotnine uses different scale than ggplot2
+    )
+    + xlab("Group")
+    + ylab("Value")
+    + scale_y_continuous(
+        limits=(df["value"].min() - 0.2, df["value"].max() + 0.2)
+    )
+)
+
+print(p)
