@@ -32,13 +32,10 @@ DISEASE_NAME_MAPPING = {
     'TotaalChronischeAandOndersteLucht_53': 'Chronic Lower Respiratory Diseases',
     'k_831Astma_54': 'Asthma',
     'k_832OvChronAandOndersteLuchtw_55': 'Other Chronic Lower Respiratory',
-    'k_84OverigeZiektenAdemhalingsorganen_56': 'Other Respiratory Diseases',
-    'TotaalZiektenSpierenBeendBindwfsl_64': 'Musculoskeletal & Connective Tissue',
-    'k_111ReumatoideArtritisEnArtrose_65': 'Rheumatoid Arthritis & Osteoarthritis',
-    'k_112OvZktnSpierenBeendBindwfsl_66': 'Other Musculoskeletal'
+    'k_84OverigeZiektenAdemhalingsorganen_56': 'Other Respiratory Diseases'
 }
 
-# ── 1. LOAD & INITIALIZE DATA ────────────────────────────────────────────────
+# --- 1. LOAD & INITIALIZE DATA ------------------------------------------------
 def load_forecast_data():
     df = pd.read_csv("/Users/yeswanth/Desktop/VA/Dataset/Visual_Analytics/cleaned_air_quality_merged.csv")
     df["datetime"] = pd.to_datetime(df["datetime"])
@@ -64,7 +61,7 @@ pollutants_forecast = [col for col in df_forecast.select_dtypes(include=[np.numb
 df_merged_full = load_merged_data()
 df_merged_full.rename(columns=DISEASE_NAME_MAPPING, inplace=True)
 
-# ── 2. UTILS ─────────────────────────────────────────────────────────────────
+# --- 2. UTILS -----------------------------------------------------------------
 def fig_to_uri(fig):
     img = io.BytesIO()
     fig.savefig(img, format='png', bbox_inches='tight', facecolor='none')
@@ -72,11 +69,11 @@ def fig_to_uri(fig):
     encoded = base64.b64encode(img.getvalue()).decode('utf-8')
     return 'data:image/png;base64,{}'.format(encoded)
 
-# ── 3. DASH APP SETUP ────────────────────────────────────────────────────────
+# --- 3. DASH APP SETUP --------------------------------------------------------
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, "https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"], suppress_callback_exceptions=True)
 app.title = "Air Quality Analytics | Dash"
 
-# ── 4. ASYNC MODEL WRAPPER ───────────────────────────────────────────────────
+# --- 4. ASYNC MODEL WRAPPER ---------------------------------------------------
 def get_model_and_preds(target, selected_features, n_trees, max_depth):
     X = df_forecast[selected_features]
     y = df_forecast[target]
@@ -94,16 +91,17 @@ def get_model_and_preds(target, selected_features, n_trees, max_depth):
     
     return model, tree_preds, X_test_reset, y_test_reset, test_dates, orig_pred
 
-# ── 5. LAYOUT DEFINITION ─────────────────────────────────────────────────────
+# --- 5. LAYOUT DEFINITION -----------------------------------------------------
 app.layout = dbc.Container([
     # Stores
     dcc.Store(id='model-data-store'),
     dcc.Store(id='disabled-trees-store', data=[]),
     dcc.Store(id='selection-idx-store', data=0),
     dcc.Store(id='tree-image-store'),
+    dcc.Store(id='best-trees-store', data=[]),
 
     dbc.Row([
-        dbc.Col(html.H1("🌿 Air Quality Visual Analytics Dashboard", className="text-center py-4", style={'fontFamily': 'Inter'}), width=12)
+        dbc.Col(html.H1("Air Quality Visual Analytics Dashboard", className="text-center py-4", style={'fontFamily': 'Inter'}), width=12)
     ]),
 
     dcc.Tabs(id="tabs-navigation", value='tab-forecasting', children=[
@@ -114,7 +112,7 @@ app.layout = dbc.Container([
     html.Div(id='tabs-content')
 ], fluid=True, style={'backgroundColor': '#0b0f19', 'minHeight': '100vh', 'color': '#e2e8f0'})
 
-# ── 6. TAB CONTENT RENDERERS ─────────────────────────────────────────────────
+# --- 6. TAB CONTENT RENDERERS -------------------------------------------------
 
 def render_forecasting_tab():
     return html.Div([
@@ -144,18 +142,18 @@ def render_forecasting_tab():
             # Main Performance and Forecast
             dbc.Col([
                 dbc.Row([
-                    dbc.Col(dbc.Card([dbc.CardBody([html.H6("R² Score"), html.H3(id="metric-r2", className="text-info")])]), width=4),
+                    dbc.Col(dbc.Card([dbc.CardBody([html.H6("R2 Score"), html.H3(id="metric-r2", className="text-info")])]), width=4),
                     dbc.Col(dbc.Card([dbc.CardBody([html.H6("MAE"), html.H3(id="metric-mae", className="text-warning")])]), width=4),
                     dbc.Col(dbc.Card([dbc.CardBody([html.H6("MSE"), html.H3(id="metric-mse", className="text-danger")])]), width=4),
                 ], className="mb-3"),
                 
                 dbc.Card([
-                    dbc.CardHeader("📈 Time Series Forecast Visualization"),
+                    dbc.CardHeader("Time Series Forecast Visualization"),
                     dbc.CardBody([
                         html.P("Click a high-error spike region below to inspect details:", className="text-muted small"),
                         dcc.Graph(id='forecast-graph', config={'displayModeBar': False}),
                         html.Hr(),
-                        html.H6("🎯 Prediction Improvement Divergence", className="text-center text-muted small"),
+                        html.H6("Prediction Improvement Divergence", className="text-center text-muted small"),
                         dcc.Graph(id='divergence-graph', config={'displayModeBar': False}, style={'height': '150px'})
                     ])
                 ], color="secondary", outline=True, className="p-2")
@@ -171,7 +169,7 @@ def render_forecasting_tab():
         dbc.Row([
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("🌡️ Tree Vote × Feature Correlation Heatmap"),
+                    dbc.CardHeader("Tree Vote x Feature Correlation Heatmap"),
                     dbc.CardBody([
                         dcc.Graph(id='heatmap-graph', config={'displayModeBar': False}),
                         html.P("Click any cell to toggle tree status.", className="text-muted small mt-2")
@@ -180,7 +178,7 @@ def render_forecasting_tab():
             ], width=6),
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("🌲 Tree Decisions at Spike"),
+                    dbc.CardHeader("Tree Decisions at Spike"),
                     dbc.CardBody([
                         dcc.Graph(id='tree-bar-graph', config={'displayModeBar': False}),
                         html.P("Click a bar to toggle tree status.", className="text-muted small mt-2")
@@ -193,9 +191,10 @@ def render_forecasting_tab():
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    dbc.Button("✅ Enable All Trees", id='btn-enable-all', color="success", size="sm", className="me-2"),
-                    dbc.Button("⛔ Disable Worst 5 at Spike", id='btn-disable-worst', color="danger", size="sm", className="me-2"),
-                    dbc.Button("🔁 Reset to Baseline", id='btn-reset-pos', color="info", size="sm")
+                    dbc.Button("Enable All Trees", id='btn-enable-all', color="success", size="sm", className="me-2"),
+                    dbc.Button("Show Best Tree", id='btn-best-tree', color="warning", size="sm", className="me-2"),
+                    dbc.Button("Disable Worst 5 at Spike", id='btn-disable-worst', color="danger", size="sm", className="me-2"),
+                    dbc.Button("Reset to Baseline", id='btn-reset-pos', color="info", size="sm")
                 ], className="d-flex justify-content-center py-4")
             ], width=12)
         ]),
@@ -204,7 +203,7 @@ def render_forecasting_tab():
         dbc.Row([
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("📊 Prediction Error Distribution"),
+                    dbc.CardHeader("Prediction Error Distribution"),
                     dbc.CardBody([
                         dcc.Graph(id='error-hist-graph')
                     ])
@@ -212,7 +211,7 @@ def render_forecasting_tab():
             ], width=6),
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("🔝 Top 5 Absolute Errors"),
+                    dbc.CardHeader("Top 5 Absolute Errors"),
                     dbc.CardBody([
                         html.Div(id='top-errors-table')
                     ])
@@ -224,7 +223,7 @@ def render_forecasting_tab():
         dbc.Row([
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("🌳 Random Forest Tree Explorer"),
+                    dbc.CardHeader("Random Forest Tree Explorer"),
                     dbc.CardBody([
                         html.P([
                             html.Span(id="tree-desc-text"),
@@ -246,7 +245,7 @@ def render_forecasting_tab():
                 dbc.Accordion([
                     dbc.AccordionItem([
                         html.Div(id='analysis-plots-container')
-                    ], title="🔬 Model Understanding & Improvement Protocol")
+                    ], title="Model Understanding & Improvement Protocol")
                 ], start_collapsed=True)
             ], width=12)
         ], className="mb-5")
@@ -259,7 +258,7 @@ def render_correlation_tab():
     disease_columns = [v for v in DISEASE_NAME_MAPPING.values() if v in df_merged.columns]
     pollutants = [c for c in df_merged.columns if c not in non_pollutant_cols + disease_columns]
     exclude_set = {'s02', 'so2', 'co', 'nh3', 'h2s', 'ufp'}
-    pollutants = [p for p in pollutants if p.lower() not in exclude_set]
+    pollutants = [p for p in pollutants if str(p).lower() not in exclude_set]
 
     return html.Div([
         dbc.Row([
@@ -302,21 +301,13 @@ def render_correlation_tab():
                                 dcc.Graph(id='corr-scatter-graph')
                             ])
                         ])
-                    ], width=7),
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardHeader("Numeric Correlation Table"),
-                            dbc.CardBody([
-                                html.Div(id='corr-table-div')
-                            ])
-                        ])
-                    ], width=5)
+                    ], width=12)
                 ])
             ], width=9)
         ])
     ])
 
-# ── 7. CALLBACKS ─────────────────────────────────────────────────────────────
+# --- 7. CALLBACKS -------------------------------------------------------------
 
 @app.callback(Output('tabs-content', 'children'), Input('tabs-navigation', 'value'))
 def render_content(tab):
@@ -428,8 +419,8 @@ def update_disabled_trees(heat_click, bar_click, enable_n, disable_worst_n, curr
         try:
             # If x was a label like "T0", extract the index
             if isinstance(ti, str):
-                if ti == "🔴": 
-                    # If it's the 🔴, we need the actual tree index. 
+                if ti == "DISABLED": 
+                    # If it's a DISABLED tree, we need the actual tree index. 
                     # Heatmap clickData usually has 'x' as the label and 'pointNumber' as [row, col]
                     ti = heat_click['points'][0]['pointNumber'][1]
                 else:
@@ -464,9 +455,10 @@ def update_disabled_trees(heat_click, bar_click, enable_n, disable_worst_n, curr
     Output('divergence-graph', 'figure'),
     Input('model-data-store', 'data'),
     Input('disabled-trees-store', 'data'),
-    Input('selection-idx-store', 'data')
+    Input('selection-idx-store', 'data'),
+    Input('best-trees-store', 'data')
 )
-def update_main_forecast_plots(data, disabled, sel_idx):
+def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
     if not data: return go.Figure(), go.Figure(), go.Figure(), "", "--", "--", "--", go.Figure(), "", go.Figure()
     
     t_preds = np.array(data['tree_preds'])
@@ -520,7 +512,7 @@ def update_main_forecast_plots(data, disabled, sel_idx):
                          paper_bgcolor="#0b0f19", plot_bgcolor="#0b0f19",
                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
 
-    # ── Divergence Plot (Bar per data point) ──
+    # --- Divergence Plot (Bar per data point) ---
     # Only show if a modification has actually been made
     if n_disabled > 0:
         divergence = np.abs(y_test - orig_pred) - np.abs(y_test - mod_pred)
@@ -590,7 +582,7 @@ def update_main_forecast_plots(data, disabled, sel_idx):
             if np.std(fv) > 1e-6 and np.std(tv) > 1e-6:
                 corr_matrix[fi, ti] = np.corrcoef(fv, tv)[0, 1]
     
-    labels = [f"T{i}" if i not in disabled else "🔴" for i in range(max_h)]
+    labels = [f"T{i}" if i not in disabled else "DISABLED" for i in range(max_h)]
     fig_heat = go.Figure()
     fig_heat.add_trace(go.Heatmap(z=corr_matrix, x=labels, y=feats, colorscale="RdYlGn", zmid=0, zmin=-1, zmax=1))
     if disabled:
@@ -601,14 +593,19 @@ def update_main_forecast_plots(data, disabled, sel_idx):
     fig_heat.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=10, b=10))
 
     # Tree Bar Plot
-    colors = ["#f43f5e" if i in disabled else "#34d399" for i in range(max_h)]
+    colors = []
+    for i in range(max_h):
+        if i in disabled: colors.append("#f43f5e")
+        elif i in (best_trees or []): colors.append("#fbbf24") # Glowing Amber
+        else: colors.append("#34d399")
+    
     fig_tree_bar = go.Figure(go.Bar(x=[f"T{i}" for i in range(max_h)], y=t_preds[:max_h, sel_idx], marker_color=colors))
     fig_tree_bar.add_hline(y=y_test[sel_idx], line_dash="dash", line_color="#38bdf8", annotation_text="Actual")
     fig_tree_bar.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=10, b=10))
 
     # Insight Banner
     banner = dbc.Alert([
-        html.B("🕒 Selection: "), dates[sel_idx],
+        html.B("Selection: "), dates[sel_idx],
         html.Span(f" | Actual: {y_test[sel_idx]:.3f}", className="ms-3"),
         html.Span(f" | Orig: {orig_pred[sel_idx]:.3f}", className="ms-3", style={'textDecoration': 'line-through', 'color': '#94a3b8'}),
         html.Span(f" | Mod Pred: {mod_pred[sel_idx]:.3f}", className="ms-3", style={'color': '#a78bfa', 'fontWeight': 'bold'}),
@@ -735,7 +732,6 @@ def update_tree_vis(data, tree_id):
 @app.callback(
     Output('corr-heatmap-graph', 'figure'),
     Output('corr-bar-graph', 'figure'),
-    Output('corr-table-div', 'children'),
     Output('scatter-p-selector', 'options'),
     Output('scatter-p-selector', 'value'),
     Output('scatter-d-selector', 'options'),
@@ -745,12 +741,12 @@ def update_tree_vis(data, tree_id):
 )
 def update_correlation_view(selected_pollutants, selected_diseases):
     if not selected_pollutants or not selected_diseases:
-        return go.Figure(), go.Figure(), "Select features", [], None, [], None
+        return go.Figure(), go.Figure(), [], None, [], None
     
     df = load_merged_data()
     df.rename(columns=DISEASE_NAME_MAPPING, inplace=True)
     analysis_df = df[selected_pollutants + selected_diseases].dropna()
-    if analysis_df.empty: return go.Figure(), go.Figure(), "No data", [], None, [], None
+    if analysis_df.empty: return go.Figure(), go.Figure(), [], None, [], None
     
     corr = analysis_df.corr().loc[selected_pollutants, selected_diseases]
     
@@ -758,23 +754,15 @@ def update_correlation_view(selected_pollutants, selected_diseases):
     fig_heat = px.imshow(corr.values, x=selected_diseases, y=selected_pollutants,
                          color_continuous_scale='RdBu_r', zmin=-1, zmax=1, template="plotly_dark")
     fig_heat.update_layout(margin=dict(l=40, r=40, t=40, b=40))
-
+    
     # Bar
     melt_corr = corr.reset_index().melt(id_vars='index', var_name='Disease', value_name='Correlation').rename(columns={'index': 'Pollutant'})
     fig_bar = px.bar(melt_corr, x='Correlation', y='Disease', color='Pollutant', orientation='h', barmode='group', template="plotly_dark")
-
-    # Table
-    tbl = dash_table.DataTable(
-        data=corr.reset_index().to_dict('records'),
-        columns=[{"name": i, "id": i} for i in corr.reset_index().columns],
-        style_header={'backgroundColor': '#1e1e2e', 'color': 'white'},
-        style_cell={'backgroundColor': '#0b0f19', 'color': '#e2e8f0'},
-    )
     
     p_opts = [{'label': p, 'value': p} for p in selected_pollutants]
     d_opts = [{'label': d, 'value': d} for d in selected_diseases]
     
-    return fig_heat, fig_bar, tbl, p_opts, selected_pollutants[0], d_opts, selected_diseases[0]
+    return fig_heat, fig_bar, p_opts, selected_pollutants[0], d_opts, selected_diseases[0]
 
 @app.callback(
     Output('corr-scatter-graph', 'figure'),
@@ -787,6 +775,48 @@ def update_scatter(p, d):
     scatter_df = df[[p, d]].dropna()
     fig = px.scatter(scatter_df, x=p, y=d, trendline="ols", template="plotly_dark", color_discrete_sequence=["#38bdf8"])
     return fig
+
+@app.callback(
+    Output('tree-id-slider', 'value', allow_duplicate=True),
+    Output('best-trees-store', 'data', allow_duplicate=True),
+    Input('btn-best-tree', 'n_clicks'),
+    Input('btn-retrain', 'n_clicks'),
+    Input('btn-enable-all', 'n_clicks'),
+    Input('btn-reset-pos', 'n_clicks'),
+    State('model-data-store', 'data'),
+    State('best-trees-store', 'data'),
+    prevent_initial_call=True
+)
+def handle_best_tree_toggle(better_n, n_re, n_en, n_rs, model_data, current_glow):
+    ctx = callback_context
+    if not ctx.triggered: return dash.no_update, dash.no_update
+    trigger_id = ctx.triggered[0]['prop_id']
+    
+    if 'btn-best-tree' not in trigger_id:
+        # Reset triggers (Retrain, Enable All, etc)
+        return dash.no_update, []
+        
+    if not model_data: return dash.no_update, []
+    
+    # Toggle logic for best-tree button
+    if current_glow:
+        return dash.no_update, []
+    
+    t_preds = np.array(model_data['tree_preds'])
+    y_test = np.array(model_data['y_test'])
+    
+    corrs = []
+    for i in range(t_preds.shape[0]):
+        if np.std(t_preds[i]) > 1e-6 and np.std(y_test) > 1e-6:
+            c = np.corrcoef(t_preds[i], y_test)[0, 1]
+            corrs.append(c)
+        else:
+            corrs.append(-1)
+            
+    top_indices = np.argsort(corrs)[-5:][::-1].tolist()
+    best_idx = int(top_indices[0])
+    
+    return best_idx, top_indices
 
 if __name__ == '__main__':
     app.run(debug=True, port=8052)
