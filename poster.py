@@ -37,7 +37,7 @@ DISEASE_NAME_MAPPING = {
 
 # --- 1. LOAD & INITIALIZE DATA ------------------------------------------------
 def load_forecast_data():
-    df = pd.read_csv("/Users/yeswanth/Desktop/VA/Dataset/Visual_Analytics/cleaned_air_quality_merged.csv")
+    df = pd.read_csv("cleaned_air_quality_merged.csv")
     df["datetime"] = pd.to_datetime(df["datetime"])
     df = df.sort_values("datetime").dropna().reset_index(drop=True)
     if len(df) > 5000:
@@ -45,7 +45,7 @@ def load_forecast_data():
     return df
 
 def load_merged_data():
-    path = "/Users/yeswanth/Desktop/VA/Dataset/Visual_Analytics/city_pollutant_health_merged_v2.csv"
+    path = "city_pollutant_health_merged_v2.csv"
     df = pd.read_csv(path)
     if "datetime" in df.columns:
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -56,7 +56,7 @@ def load_merged_data():
     return df
 
 df_forecast = load_forecast_data()
-pollutants_forecast = [col for col in df_forecast.select_dtypes(include=[np.number]).columns if col != "datetime"]
+pollutants_forecast = [col for col in df_forecast.select_dtypes(include=[np.number]).columns if col not in ["datetime", "bc", "BC"]]
 
 df_merged_full = load_merged_data()
 df_merged_full.rename(columns=DISEASE_NAME_MAPPING, inplace=True)
@@ -257,7 +257,7 @@ def render_correlation_tab():
     non_pollutant_cols = [c for c in ['datetime', 'City', 'Year'] if c in df_merged.columns]
     disease_columns = [v for v in DISEASE_NAME_MAPPING.values() if v in df_merged.columns]
     pollutants = [c for c in df_merged.columns if c not in non_pollutant_cols + disease_columns]
-    exclude_set = {'s02', 'so2', 'co', 'nh3', 'h2s', 'ufp'}
+    exclude_set = {'s02', 'so2', 'co', 'nh3', 'h2s', 'ufp', 'bc'}
     pollutants = [p for p in pollutants if str(p).lower() not in exclude_set]
 
     return html.Div([
