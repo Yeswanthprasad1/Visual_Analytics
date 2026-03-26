@@ -481,17 +481,17 @@ def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
 
     # Forecast Plot
     fig_ts = go.Figure()
-    fig_ts.add_trace(go.Scatter(x=dates, y=y_test, name="Actual", line=dict(color="#38bdf8", width=2)))
+    fig_ts.add_trace(go.Scatter(x=dates, y=y_test, name="Actual", line=dict(color="#0072B2", width=2))) # Colorblind Blue
     # Original Pred (Base line for fill)
-    fig_ts.add_trace(go.Scatter(x=dates, y=orig_pred, name="Original Pred", line=dict(color="#ea580c", width=2)))
+    fig_ts.add_trace(go.Scatter(x=dates, y=orig_pred, name="Original Pred", line=dict(color="#E69F00", width=2))) # Colorblind Orange
     
     if n_disabled > 0:
         # Modified Pred with fill to the 'Original Pred' (tonexty)
         fig_ts.add_trace(go.Scatter(
             x=dates, y=mod_pred, name="Modified Pred", 
-            line=dict(color="#8b5cf6", width=3),
+            line=dict(color="#CC79A7", width=3), # Colorblind Purple
             fill='tonexty',
-            fillcolor='rgba(249, 115, 22, 0.65)'  # More solid semi-transparent orange
+            fillcolor='rgba(230, 159, 0, 0.4)'  # Semi-transparent orange matching Original Pred
         ))
     
     # Spikes
@@ -500,7 +500,7 @@ def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
         fig_ts.add_trace(go.Scatter(
             x=[dates[i] for i in spike_idx], y=[orig_pred[i] for i in spike_idx],
             mode="markers", name="High-Error Spike",
-            marker=dict(color="#f43f5e", size=10, symbol="circle", line=dict(color="#fff", width=1)),
+            marker=dict(color="#D55E00", size=10, symbol="circle", line=dict(color="#fff", width=1)), # Colorblind Vermillion
             hoverinfo="text", text=[f"High-Error Spike<br>Time: {dates[i]}<br>Error: {abs(y_test[i]-orig_pred[i]):.3f}" for i in spike_idx]
         ))
 
@@ -516,7 +516,7 @@ def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
     # Only show if a modification has actually been made
     if n_disabled > 0:
         divergence = np.abs(y_test - orig_pred) - np.abs(y_test - mod_pred)
-        div_colors = ["#34d399" if v >= 0 else "#f43f5e" for v in divergence]
+        div_colors = ["#56B4E9" if v >= 0 else "#D55E00" for v in divergence] # Sky Blue vs Vermillion
         
         fig_div = go.Figure()
         fig_div.add_trace(go.Bar(
@@ -584,23 +584,23 @@ def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
     
     labels = [f"T{i}" if i not in disabled else "DISABLED" for i in range(max_h)]
     fig_heat = go.Figure()
-    fig_heat.add_trace(go.Heatmap(z=corr_matrix, x=labels, y=feats, colorscale="RdYlGn", zmid=0, zmin=-1, zmax=1))
+    fig_heat.add_trace(go.Heatmap(z=corr_matrix, x=labels, y=feats, colorscale="Viridis", zmid=0, zmin=-1, zmax=1))
     if disabled:
         overlay_z = np.zeros((len(feats), max_h))
         for ti in disabled:
             if ti < max_h: overlay_z[:, ti] = 1.0
-        fig_heat.add_trace(go.Heatmap(z=overlay_z, x=labels, y=feats, colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(244,63,94,0.22)"]], showscale=False, hoverinfo="skip"))
+        fig_heat.add_trace(go.Heatmap(z=overlay_z, x=labels, y=feats, colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(213,94,0,0.3)"]], showscale=False, hoverinfo="skip"))
     fig_heat.update_layout(template="plotly_white", height=380, margin=dict(l=10, r=10, t=10, b=10))
 
     # Tree Bar Plot
     colors = []
     for i in range(max_h):
-        if i in disabled: colors.append("#f43f5e")
-        elif i in (best_trees or []): colors.append("#fbbf24") # Glowing Amber
-        else: colors.append("#34d399")
+        if i in disabled: colors.append("#D55E00") # Vermillion
+        elif i in (best_trees or []): colors.append("#F0E442") # Colorblind Yellow
+        else: colors.append("#009E73") # Colorblind Greenish
     
     fig_tree_bar = go.Figure(go.Bar(x=[f"T{i}" for i in range(max_h)], y=t_preds[:max_h, sel_idx], marker_color=colors))
-    fig_tree_bar.add_hline(y=y_test[sel_idx], line_dash="dash", line_color="#38bdf8", annotation_text="Actual")
+    fig_tree_bar.add_hline(y=y_test[sel_idx], line_dash="dash", line_color="#0072B2", annotation_text="Actual")
     fig_tree_bar.update_layout(template="plotly_white", height=380, margin=dict(l=10, r=10, t=10, b=10))
 
     # Insight Banner
@@ -608,13 +608,13 @@ def update_main_forecast_plots(data, disabled, sel_idx, best_trees):
         html.B("Selection: "), dates[sel_idx],
         html.Span(f" | Actual: {y_test[sel_idx]:.3f}", className="ms-3"),
         html.Span(f" | Orig: {orig_pred[sel_idx]:.3f}", className="ms-3", style={'textDecoration': 'line-through', 'color': '#94a3b8'}),
-        html.Span(f" | Mod Pred: {mod_pred[sel_idx]:.3f}", className="ms-3", style={'color': '#a78bfa', 'fontWeight': 'bold'}),
+        html.Span(f" | Mod Pred: {mod_pred[sel_idx]:.3f}", className="ms-3", style={'color': '#CC79A7', 'fontWeight': 'bold'}),
         html.Span(f" | Active Trees: {n_total - n_disabled}/{n_total}", className="ms-3")
     ], color="light", style={'borderLeft': '4px solid #facc15'})
 
     # Error Hist
     residuals = y_test - mod_pred
-    fig_err = px.histogram(pd.DataFrame({"Residuals": residuals}), x="Residuals", nbins=40, template="plotly_white", color_discrete_sequence=["#ef553b"])
+    fig_err = px.histogram(pd.DataFrame({"Residuals": residuals}), x="Residuals", nbins=40, template="plotly_white", color_discrete_sequence=["#D55E00"])
     fig_err.update_layout(height=350, margin=dict(l=10, r=10, t=10, b=10))
 
     # Top Errors Table
@@ -772,7 +772,7 @@ def update_scatter(p, d):
     if not p or not d: return go.Figure()
     df = df_merged_full
     scatter_df = df[[p, d]].dropna()
-    fig = px.scatter(scatter_df, x=p, y=d, trendline="ols", template="plotly_white", color_discrete_sequence=["#38bdf8"])
+    fig = px.scatter(scatter_df, x=p, y=d, trendline="ols", template="plotly_white", color_discrete_sequence=["#0072B2"])
     return fig
 
 @app.callback(
