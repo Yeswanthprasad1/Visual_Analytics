@@ -56,7 +56,7 @@ def load_merged_data():
     return df
 
 df_forecast = load_forecast_data()
-pollutants_forecast = [col for col in df_forecast.select_dtypes(include=[np.number]).columns if col != "datetime"]
+pollutants_forecast = [col for col in df_forecast.select_dtypes(include=[np.number]).columns if col not in ["datetime", "bc", "BC"]]
 
 df_merged_full = load_merged_data()
 df_merged_full.rename(columns=DISEASE_NAME_MAPPING, inplace=True)
@@ -257,7 +257,7 @@ def render_correlation_tab():
     non_pollutant_cols = [c for c in ['datetime', 'City', 'Year'] if c in df_merged.columns]
     disease_columns = [v for v in DISEASE_NAME_MAPPING.values() if v in df_merged.columns]
     pollutants = [c for c in df_merged.columns if c not in non_pollutant_cols + disease_columns]
-    exclude_set = {'s02', 'so2', 'co', 'nh3', 'h2s', 'ufp'}
+    exclude_set = {'s02', 'so2', 'co', 'nh3', 'h2s', 'ufp', 'bc'}
     pollutants = [p for p in pollutants if str(p).lower() not in exclude_set]
 
     return html.Div([
