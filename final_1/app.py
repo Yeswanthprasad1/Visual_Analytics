@@ -35,8 +35,13 @@ DISEASE_NAME_MAPPING = {
 }
 
 # --- 1. LOAD & INITIALIZE DATA ------------------------------------------------
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# --- 1. LOAD & INITIALIZE DATA ------------------------------------------------
 def load_forecast_data():
-    df = pd.read_csv("./data/cleaned_air_quality_merged.csv")
+    path = os.path.join(SCRIPT_DIR, "data", "cleaned_air_quality_merged.csv")
+    df = pd.read_csv(path)
     df["datetime"] = pd.to_datetime(df["datetime"])
     df = df.sort_values("datetime").dropna().reset_index(drop=True)
     if len(df) > 5000:
@@ -44,7 +49,7 @@ def load_forecast_data():
     return df
 
 def load_merged_data():
-    path = "./data/city_pollutant_health_merged_v2.csv"
+    path = os.path.join(SCRIPT_DIR, "data", "city_pollutant_health_merged_v2.csv")
     df = pd.read_csv(path)
     if "datetime" in df.columns:
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -125,6 +130,10 @@ def render_forecasting_tab():
                         dcc.Dropdown(id='target-selector', options=[{'label': p, 'value': p} for p in pollutants_forecast], value="n02_palmes"),
                         html.Br(),
                         html.Label("Input Predictors (Features)"),
+                        html.Div([
+                            html.A("Select All", id='features-all', className="me-2 text-primary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'}),
+                            html.A("Clear", id='features-none', className="text-secondary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'})
+                        ], className="mb-1 text-end"),
                         dcc.Dropdown(id='feature-selector', multi=True),
                         html.Br(),
                         html.Label("Number of Trees"),
@@ -266,10 +275,18 @@ def render_correlation_tab():
                     dbc.CardHeader("Correlation Controls"),
                     dbc.CardBody([
                         html.Label("Select Pollutants (X-axis)"),
+                        html.Div([
+                            html.A("Select All", id='corr-poll-all', className="me-2 text-primary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'}),
+                            html.A("Clear", id='corr-poll-none', className="text-secondary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'})
+                        ], className="mb-1 text-end"),
                         dcc.Dropdown(id='corr-pollutant-selector', options=[{'label': p, 'value': p} for p in pollutants], 
                                      value=pollutants[:3], multi=True),
                         html.Br(),
                         html.Label("Select Diseases (Y-axis)"),
+                        html.Div([
+                            html.A("Select All", id='corr-diss-all', className="me-2 text-primary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'}),
+                            html.A("Clear", id='corr-diss-none', className="text-secondary small text-decoration-none", n_clicks=0, style={'cursor':'pointer'})
+                        ], className="mb-1 text-end"),
                         dcc.Dropdown(id='corr-disease-selector', options=[{'label': d, 'value': d} for d in disease_columns], 
                                      value=disease_columns[:3], multi=True),
                     ])
@@ -317,11 +334,26 @@ def render_content(tab):
 @app.callback(
     Output('feature-selector', 'options'),
     Output('feature-selector', 'value'),
-    Input('target-selector', 'value')
+    Input('target-selector', 'value'),
+    Input('features-all', 'n_clicks'),
+    Input('features-none', 'n_clicks'),
+    State('feature-selector', 'options'),
+    prevent_initial_call=False
 )
-def update_feature_list(target):
+def update_feature_list(target, n_all, n_none, current_options):
+    ctx = dash.callback_context
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else 'target-selector'
+    
     feats = [p for p in pollutants_forecast if p != target]
-    return [{'label': f, 'value': f} for f in feats], feats[:4]
+    options = [{'label': f, 'value': f} for f in feats]
+    
+    if trigger == 'features-all':
+        return options, [o['value'] for o in options]
+    if trigger == 'features-none':
+        return options, []
+        
+    # Default selection (first 4) when target changes
+    return options, feats[:4]
 
 @app.callback(
     Output('model-data-store', 'data'),
@@ -815,6 +847,35 @@ def handle_best_tree_toggle(better_n, n_re, n_en, n_rs, model_data, current_glow
     best_idx = int(top_indices[0])
     
     return best_idx, top_indices
+
+# Correlation Tab Value Callbacks
+@app.callback(
+    Output('corr-pollutant-selector', 'value'),
+    Input('corr-poll-all', 'n_clicks'),
+    Input('corr-poll-none', 'n_clicks'),
+    State('corr-pollutant-selector', 'options'),
+    prevent_initial_call=True
+)
+def update_corr_poll_value(n_all, n_none, options):
+    ctx = dash.callback_context
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger == 'corr-poll-all':
+        return [o['value'] for o in options]
+    return []
+
+@app.callback(
+    Output('corr-disease-selector', 'value'),
+    Input('corr-diss-all', 'n_clicks'),
+    Input('corr-diss-none', 'n_clicks'),
+    State('corr-disease-selector', 'options'),
+    prevent_initial_call=True
+)
+def update_corr_diss_value(n_all, n_none, options):
+    ctx = dash.callback_context
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger == 'corr-diss-all':
+        return [o['value'] for o in options]
+    return []
 
 if __name__ == '__main__':
     app.run(debug=True, port=8052)
